@@ -1,6 +1,6 @@
 """
-Agnes AI — multi-page professional platform (Luxurious Tech theme).
-Chat logic preserved; wrapped in auth, sidebar navigation, settings, and pricing.
+Agnes AI — Luxurious Tech multi-page platform with Lottie login mascot.
+Install deps: pip install -r requirements.txt  (includes streamlit-lottie for web deploy).
 """
 
 from __future__ import annotations
@@ -11,8 +11,9 @@ import os
 import time
 from typing import Any
 
+import requests
 import streamlit as st
-from streamlit.components import v1 as components
+from streamlit_lottie import st_lottie
 
 try:
     from st_keyup import st_keyup
@@ -21,8 +22,19 @@ except ImportError:  # pragma: no cover
 
 _TABS_STATEFUL = "on_change" in inspect.signature(st.tabs).parameters
 
-_DEMO_USER = os.environ.get("AGNES_USER", "demo")
-_DEMO_PASS = os.environ.get("AGNES_PASS", "demo")
+# Testing defaults (override with AGNES_USER / AGNES_PASS)
+_DEMO_USER = os.environ.get("AGNES_USER", "admin")
+_DEMO_PASS = os.environ.get("AGNES_PASS", "1234")
+
+# Public Lottie JSON URLs (robot idle vs. shy/peek — swap URLs anytime)
+_LOTTIE_IDLE_URL = os.environ.get(
+    "AGNES_LOTTIE_IDLE",
+    "https://assets5.lottiefiles.com/packages/lf20_V9t630.json",
+)
+_LOTTIE_TYPING_URL = os.environ.get(
+    "AGNES_LOTTIE_TYPING",
+    "https://assets9.lottiefiles.com/packages/lf20_ofhjoshi.json",
+)
 
 STRINGS: dict[str, dict[str, str]] = {
     "en": {
@@ -30,7 +42,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "login_sub": "Sign in to continue to Agnes AI",
         "username": "Email or username",
         "password": "Password",
-        "sign_in": "Sign in",
+        "sign_in": "Log In",
         "nav_chat": "Chat",
         "nav_settings": "Settings",
         "nav_upgrade": "Upgrade to Pro / Ultra",
@@ -47,8 +59,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "welcome_en": "Hello, I'm Agnes. How can I help you today?",
         "reply_ultra": "Agnes-Ultra — connect your model here for full reasoning.",
         "reply_fast": "Agnes-Fast — wire your streaming endpoint for snappy replies.",
-        "mascot_hint": "The mascot covers its eyes while you type your password.",
+        "mascot_hint": "The character reacts while you type your password.",
         "tagline": "Your Sophisticated Intelligent Assistant",
+        "lottie_err": "Could not load animation. Check network/CORS on deploy.",
+        "login_demo_hint": "Demo: username **admin**, password **1234**.",
     },
     "ar": {
         "login_title": "مرحباً بعودتك!",
@@ -72,8 +86,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "welcome_en": "Hello, I'm Agnes. How can I help you today?",
         "reply_ultra": "Agnes-Ultra — اربط نموذجك هنا للاستدلال الكامل.",
         "reply_fast": "Agnes-Fast — اربط بث الاستجابة السريع للإنتاج.",
-        "mascot_hint": "التميمة تغطي عينيها أثناء كتابة كلمة المرور.",
+        "mascot_hint": "الشخصية تتفاعل أثناء كتابة كلمة المرور.",
         "tagline": "مساعدتك الذكية الأنيقة",
+        "lottie_err": "تعذر تحميل الرسوم المتحركة. تحقق من الشبكة.",
+        "login_demo_hint": "تجربة: اسم المستخدم **admin** وكلمة المرور **1234**.",
     },
 }
 
@@ -83,31 +99,38 @@ def tr(key: str) -> str:
     return STRINGS.get(lang, STRINGS["en"]).get(key, key)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_lottie_url(url: str) -> dict[str, Any] | None:
+    try:
+        r = requests.get(url, timeout=12)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def inject_global_css() -> None:
     dark = st.session_state.get("dark_mode", True)
-    authed = st.session_state.get("authenticated", False)
+    logged_in = st.session_state.get("logged_in", False)
     rtl = st.session_state.get("language") == "ar"
 
     if dark:
         bg = "#000000"
-        card = "#1A1412"
         text = "#F4F2EF"
         muted = "#9A8F88"
         accent = "#00E5FF"
-        accent_soft = "rgba(0, 229, 255, 0.35)"
         input_bg = "#0D0D0D"
     else:
         bg = "#F5F1EC"
-        card = "#FFFFFF"
         text = "#1A1412"
         muted = "#5C534D"
         accent = "#00A8C6"
-        accent_soft = "rgba(0, 168, 198, 0.35)"
         input_bg = "#FAFAFA"
 
     hide_sb = (
         '[data-testid="stSidebar"] { display: none !important; }'
-        if not authed
+        if not logged_in
         else ""
     )
 
@@ -119,63 +142,41 @@ def inject_global_css() -> None:
 <style>
   :root {{
     --lux-bg: {bg};
-    --lux-card: {card};
     --lux-text: {text};
     --lux-muted: {muted};
     --lux-accent: {accent};
-    --lux-accent-soft: {accent_soft};
     --lux-input-bg: {input_bg};
   }}
-
   html {{ zoom: 0.92; }}
-  @supports not (zoom: 1) {{
-    .main .block-container {{
-      transform: scale(0.92);
-      transform-origin: top center;
-      width: 108.7%;
-      max-width: 108.7%;
-    }}
-  }}
-
   .stApp, [data-testid="stAppViewContainer"], .main {{
     background: var(--lux-bg) !important;
     color: var(--lux-text) !important;
   }}
-
   .main .block-container {{
     padding-top: 0.75rem;
     padding-bottom: 4rem;
     max-width: 72rem;
     direction: {"rtl" if rtl else "ltr"};
   }}
-
   .font-ar, [lang="ar"], .rtl-block {{
     font-family: "Cairo", system-ui, sans-serif !important;
   }}
-  body, .stApp {{
-    font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
-  }}
-
+  body, .stApp {{ font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif; }}
+  .login-rtl-fix[dir="rtl"] {{ text-align: right; unicode-bidi: plaintext; }}
   {hide_sb}
-
   [data-testid="stSidebar"] {{
     background: linear-gradient(180deg, #0A0A0A 0%, #12100E 100%) !important;
     border-right: 1px solid rgba(0, 229, 255, 0.12) !important;
   }}
   [data-testid="stSidebar"] .block-container {{ padding-top: 1.25rem; }}
   [data-testid="stSidebar"] * {{ color: #EAE6E1 !important; }}
-
-  .stTextInput input,
-  .stTextArea textarea,
-  [data-baseweb="input"] {{
+  .stTextInput input, .stTextArea textarea, [data-baseweb="input"] {{
     background: var(--lux-input-bg) !important;
     color: var(--lux-text) !important;
     border-color: rgba(0, 229, 255, 0.45) !important;
     border-radius: 10px !important;
   }}
-  .stTextInput input:focus,
-  .stTextArea textarea:focus,
-  [data-baseweb="input"]:focus {{
+  .stTextInput input:focus, .stTextArea textarea:focus, [data-baseweb="input"]:focus {{
     border-color: var(--lux-accent) !important;
     box-shadow: 0 0 0 1px var(--lux-accent) !important;
     outline: none !important;
@@ -189,23 +190,13 @@ def inject_global_css() -> None:
     color: var(--lux-text) !important;
     caret-color: var(--lux-accent);
   }}
-
-  iframe[title="streamlit_keyup.st_keyup"] {{
-    border: 1px solid rgba(0, 229, 255, 0.35) !important;
-    border-radius: 10px !important;
-  }}
-
   .stTabs [data-baseweb="tab-list"] {{
-    gap: 0;
-    background: transparent;
+    gap: 0; background: transparent;
     border-bottom: 1px solid rgba(0, 229, 255, 0.2);
   }}
   .stTabs [data-baseweb="tab"] {{
-    color: var(--lux-muted) !important;
-    font-weight: 600;
-    font-size: 0.88rem;
-    padding: 0.5rem 1rem !important;
-    background: transparent !important;
+    color: var(--lux-muted) !important; font-weight: 600; font-size: 0.88rem;
+    padding: 0.5rem 1rem !important; background: transparent !important;
   }}
   .stTabs [aria-selected="true"] {{
     color: var(--lux-accent) !important;
@@ -213,7 +204,6 @@ def inject_global_css() -> None:
     border-radius: 0 !important;
   }}
   .stTabs [data-baseweb="tab-highlight"] {{ display: none; }}
-
   #MainMenu {{ visibility: hidden; }}
   footer {{ visibility: hidden; }}
 </style>
@@ -223,8 +213,9 @@ def inject_global_css() -> None:
 
 
 def init_session() -> None:
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
     defaults: dict[str, Any] = {
-        "authenticated": False,
         "nav_slug": "chat",
         "dark_mode": True,
         "language": "en",
@@ -240,7 +231,10 @@ def init_session() -> None:
     if not st.session_state.get("_nav_v2"):
         st.session_state.pop("nav_page", None)
         st.session_state.pop("nav_page_radio", None)
+        st.session_state.pop("authenticated", None)
         st.session_state._nav_v2 = True
+    if "login_username" not in st.session_state:
+        st.session_state["login_username"] = _DEMO_USER
 
     if st.session_state.messages is None:
         lang0 = st.session_state.language
@@ -255,75 +249,37 @@ def init_session() -> None:
         ]
 
 
-def mascot_html(pw_len: int) -> str:
-    typing = pw_len > 0
-    eye_opacity = "0" if typing else "1"
-    hand_y = "-6" if typing else "18"
-    blush = "0.55" if typing else "0.25"
-    return f"""
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"/>
-<style>
-  * {{ box-sizing: border-box; }}
-  body {{
-    margin: 0; background: transparent; font-family: system-ui, sans-serif;
-    display: flex; align-items: center; justify-content: center; min-height: 360px;
-  }}
-  .stage {{ position: relative; width: 280px; height: 320px; }}
-  .glow {{
-    position: absolute; inset: 12% 8%; border-radius: 50%;
-    background: radial-gradient(circle, rgba(0,229,255,0.18) 0%, transparent 70%);
-    filter: blur(8px);
-  }}
-  svg {{ overflow: visible; }}
-  .eyes {{ transition: opacity 0.18s ease; opacity: {eye_opacity}; }}
-  .hands {{ transition: transform 0.22s ease; transform: translateY({hand_y}px); }}
-  .blush ellipse {{ opacity: {blush}; transition: opacity 0.2s ease; }}
-</style></head>
-<body>
-  <div class="stage" aria-hidden="true">
-    <div class="glow"></div>
-    <svg width="280" height="320" viewBox="0 0 280 320">
-      <defs>
-        <linearGradient id="fur" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#2A2420"/><stop offset="100%" stop-color="#1A1412"/>
-        </linearGradient>
-        <linearGradient id="ear" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#3A302C"/><stop offset="100%" stop-color="#1A1412"/>
-        </linearGradient>
-      </defs>
-      <ellipse cx="78" cy="118" rx="28" ry="36" fill="url(#ear)" transform="rotate(-18 78 118)"/>
-      <ellipse cx="202" cy="118" rx="28" ry="36" fill="url(#ear)" transform="rotate(18 202 118)"/>
-      <ellipse cx="140" cy="170" rx="92" ry="84" fill="url(#fur)"
-        stroke="rgba(0,229,255,0.35)" stroke-width="1.5"/>
-      <g class="blush">
-        <ellipse cx="92" cy="182" rx="18" ry="10" fill="rgba(0,229,255,0.12)"/>
-        <ellipse cx="188" cy="182" rx="18" ry="10" fill="rgba(0,229,255,0.12)"/>
-      </g>
-      <g class="eyes">
-        <ellipse cx="108" cy="158" rx="14" ry="18" fill="#0A0A0A"/>
-        <ellipse cx="172" cy="158" rx="14" ry="18" fill="#0A0A0A"/>
-        <circle cx="112" cy="152" r="4" fill="#FFFFFF" opacity="0.85"/>
-        <circle cx="176" cy="152" r="4" fill="#FFFFFF" opacity="0.85"/>
-      </g>
-      <ellipse cx="140" cy="198" rx="34" ry="26" fill="#241C19" opacity="0.9"/>
-      <ellipse cx="128" cy="196" rx="8" ry="6" fill="#0A0A0A"/>
-      <ellipse cx="152" cy="196" rx="8" ry="6" fill="#0A0A0A"/>
-      <g class="hands" fill="#2C2622" stroke="rgba(0,229,255,0.25)" stroke-width="1">
-        <ellipse cx="95" cy="168" rx="36" ry="28" transform="rotate(-12 95 168)"/>
-        <ellipse cx="185" cy="168" rx="36" ry="28" transform="rotate(12 185 168)"/>
-      </g>
-    </svg>
-    <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;
-      font-size:11px;color:rgba(0,229,255,0.55);letter-spacing:0.08em;text-transform:uppercase;">
-      Agnes
-    </div>
-  </div>
-</body></html>
-"""
+def render_login_lottie_pw_len(pw_len: int) -> None:
+    """Swap Lottie source when the user types in the password field."""
+    use_typing = pw_len > 0
+    url = _LOTTIE_TYPING_URL if use_typing else _LOTTIE_IDLE_URL
+    data = load_lottie_url(url)
+    if data is None:
+        st.warning(tr("lottie_err"))
+        return
+    st_lottie(
+        data,
+        speed=1,
+        reverse=False,
+        loop=True,
+        quality="medium",
+        height=380,
+        width=None,
+        key=f"agnes_lottie_{'type' if use_typing else 'idle'}_{url[-24:]}",
+    )
 
 
 def render_login() -> None:
+    pw_key = "login_password_live"
+    st.selectbox(
+        tr("language"),
+        ["en", "ar"],
+        format_func=lambda x: "English" if x == "en" else "العربية",
+        index=0 if st.session_state.get("language", "en") == "en" else 1,
+        key="language",
+    )
+    pw_len = len(str(st.session_state.get(pw_key, "")))
+
     st.markdown(
         """
 <style>
@@ -331,62 +287,56 @@ def render_login() -> None:
     margin: 0 0 0.35rem 0; font-size: 1.55rem; font-weight: 700; color: #FFFFFF;
     letter-spacing: 0.02em;
   }
-  .welcome-head p.sub {
-    margin: 0 0 1rem 0; color: #B8A99A; font-size: 0.92rem;
-  }
+  .welcome-head p.sub { margin: 0 0 0.85rem 0; color: #B8A99A; font-size: 0.92rem; }
 </style>
         """,
         unsafe_allow_html=True,
     )
 
-    pw_key = "login_password_live"
-    pw_len = len(str(st.session_state.get(pw_key, "")))
-
     c_mascot, c_card = st.columns([1.05, 1.0], gap="large")
-    with c_mascot:
-        components.html(mascot_html(pw_len), height=400, scrolling=False)
 
-    with c_card:
-        dir_attr = 'dir="rtl"' if st.session_state.get("language") == "ar" else ""
+    with c_mascot:
         st.markdown(
-            f'<div class="welcome-head" {dir_attr}><h2 class="font-ar">{html.escape(tr("login_title"))}</h2>'
-            f'<p class="sub font-ar">{html.escape(tr("login_sub"))}</p></div>',
+            '<p style="color:#00E5FF;font-size:0.72rem;letter-spacing:0.14em;text-transform:uppercase;margin:0 0 0.5rem;">AI Character</p>',
             unsafe_allow_html=True,
         )
+        render_login_lottie_pw_len(pw_len)
 
+    with c_card:
+        is_ar = st.session_state.get("language") == "ar"
         with st.container(border=True):
+            rh = f'<div class="welcome-head login-rtl-fix font-ar" dir="rtl" lang="ar">' if is_ar else '<div class="welcome-head">'
+            st.markdown(
+                rh
+                + f'<h2 class="font-ar">{html.escape(tr("login_title"))}</h2>'
+                f'<p class="sub font-ar">{html.escape(tr("login_sub"))}</p></div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(tr("login_demo_hint"))
+
             if st_keyup is not None:
                 st_keyup(tr("password"), key=pw_key, debounce=0)
                 st.caption(tr("mascot_hint"))
+            else:
+                st.text_input(tr("password"), type="password", key=pw_key)
+                st.caption("Install **streamlit-keyup** so the Lottie swaps on each keystroke.")
+
             with st.form("login_form_agnes", clear_on_submit=False):
                 username = st.text_input(tr("username"), key="login_username")
-                password_fallback = ""
-                if st_keyup is None:
-                    password_fallback = st.text_input(
-                        tr("password"), type="password", key=pw_key
-                    )
-                    st.caption(
-                        "Install `streamlit-keyup` for live mascot animation while typing."
-                    )
                 submitted = st.form_submit_button(
                     tr("sign_in"), type="primary", use_container_width=True
                 )
                 if submitted:
-                    password_value = (
-                        str(st.session_state.get(pw_key, ""))
-                        if st_keyup is not None
-                        else password_fallback
-                    )
+                    password_value = str(st.session_state.get(pw_key, ""))
                     if (
                         username.strip() == _DEMO_USER
                         and password_value == _DEMO_PASS
                     ):
-                        st.session_state.authenticated = True
-                        st.session_state.nav_slug = "chat"
+                        st.session_state["logged_in"] = True
                         st.rerun()
                     else:
                         st.error(
-                            "Invalid credentials. Demo: username `demo`, password `demo`."
+                            f"Invalid credentials. Use username `{_DEMO_USER}` and password `{_DEMO_PASS}`."
                         )
 
 
@@ -416,7 +366,7 @@ def render_sidebar() -> None:
     )
     st.sidebar.divider()
     if st.sidebar.button(tr("logout"), use_container_width=True):
-        st.session_state.authenticated = False
+        st.session_state["logged_in"] = False
         for k in (
             "login_username",
             "login_password_live",
@@ -592,13 +542,13 @@ def render_settings_page() -> None:
     st.session_state.dark_mode = st.toggle(
         tr("dark_mode"), value=st.session_state.dark_mode
     )
-    lang = st.selectbox(
+    st.selectbox(
         tr("language"),
-        options=["en", "ar"],
+        ["en", "ar"],
         format_func=lambda x: "English" if x == "en" else "العربية",
-        index=0 if st.session_state.language == "en" else 1,
+        index=0 if st.session_state.get("language", "en") == "en" else 1,
+        key="language",
     )
-    st.session_state.language = lang
     st.session_state.creativity = st.slider(
         tr("creativity"),
         min_value=0.0,
@@ -664,10 +614,7 @@ def render_upgrade_page() -> None:
   <h3 style="color:#FFFFFF;margin-top:0;">Agnes Pro</h3>
   <p style="color:#B8A99A;font-size:0.95rem;">For power users who want speed and depth.</p>
   <ul style="color:#EAE6E1;line-height:1.7;">
-    <li>Faster response</li>
-    <li>Advanced memory</li>
-    <li>Priority queue</li>
-    <li>Expanded context</li>
+    <li>Faster response</li><li>Advanced memory</li><li>Priority queue</li><li>Expanded context</li>
   </ul>
   <p style="color:#00E5FF;font-size:1.35rem;font-weight:700;">$12<span style="font-size:0.85rem;color:#9A8F88">/mo</span></p>
 </div>
@@ -676,22 +623,19 @@ def render_upgrade_page() -> None:
         )
         if st.button(tr("buy") + " — Pro", key="buy_pro", use_container_width=True):
             payment_dialog("Agnes Pro")
-
     with c2:
         st.markdown(
             """
 <div style="background:linear-gradient(145deg,#0A1A1C 0%,#1A1412 55%,#0E2226 100%);
-  border:1px solid rgba(0,229,255,0.55);border-radius:16px;padding:1.5rem;min-height:320px;
-  box-shadow:0 0 40px rgba(0,229,255,0.12), inset 0 1px 0 rgba(0,229,255,0.2);position:relative;overflow:hidden;">
+ border:1px solid rgba(0,229,255,0.55);border-radius:16px;padding:1.5rem;min-height:320px;
+ box-shadow:0 0 40px rgba(0,229,255,0.12), inset 0 1px 0 rgba(0,229,255,0.2);position:relative;overflow:hidden;">
   <div style="position:absolute;top:12px;right:14px;font-size:0.68rem;letter-spacing:0.12em;text-transform:uppercase;
     color:#001018;background:#00E5FF;padding:0.25rem 0.55rem;border-radius:999px;font-weight:700;">Ultra</div>
   <h3 style="color:#00E5FF;margin-top:0;">Agnes Ultra</h3>
   <p style="color:#B8A99A;font-size:0.95rem;">Electric performance for teams and creators.</p>
   <ul style="color:#EAE6E1;line-height:1.7;">
     <li><span style="color:#00E5FF">Fastest</span> inference tier</li>
-    <li>Long-horizon memory & tools</li>
-    <li>Dedicated quality lane</li>
-    <li>Concierge onboarding</li>
+    <li>Long-horizon memory & tools</li><li>Dedicated quality lane</li><li>Concierge onboarding</li>
   </ul>
   <p style="color:#00E5FF;font-size:1.35rem;font-weight:700;">$29<span style="font-size:0.85rem;color:#9A8F88">/mo</span></p>
 </div>
@@ -712,7 +656,7 @@ def main() -> None:
     init_session()
     inject_global_css()
 
-    if not st.session_state.authenticated:
+    if not st.session_state.get("logged_in"):
         render_login()
         return
 
@@ -728,5 +672,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
