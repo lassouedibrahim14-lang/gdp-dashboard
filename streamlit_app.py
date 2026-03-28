@@ -1,328 +1,434 @@
 """
-Agnes AI — high-end minimalist mobile chat UI (Streamlit).
-Palette: deep black, pure white, earthy browns (mocha, cedar, sand).
+Agnes AI — multi-page professional platform (Luxurious Tech theme).
+Chat logic preserved; wrapped in auth, sidebar navigation, settings, and pricing.
 """
 
 from __future__ import annotations
 
 import html
 import inspect
+import os
+import time
+from typing import Any
 
 import streamlit as st
+from streamlit.components import v1 as components
+
+try:
+    from st_keyup import st_keyup
+except ImportError:  # pragma: no cover
+    st_keyup = None  # type: ignore[misc, assignment]
 
 _TABS_STATEFUL = "on_change" in inspect.signature(st.tabs).parameters
 
-# —— Page ——
-st.set_page_config(
-    page_title="Agnes AI",
-    page_icon="◆",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+_DEMO_USER = os.environ.get("AGNES_USER", "demo")
+_DEMO_PASS = os.environ.get("AGNES_PASS", "demo")
 
-# —— Session ——
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "text": "مرحباً ، أنا أغنيس.. كيف يمكنني مساعدتك اليوم؟",
-        }
-    ]
-if "active_model" not in st.session_state:
-    st.session_state.active_model = "Agnes-Ultra"
+STRINGS: dict[str, dict[str, str]] = {
+    "en": {
+        "login_title": "Welcome back!",
+        "login_sub": "Sign in to continue to Agnes AI",
+        "username": "Email or username",
+        "password": "Password",
+        "sign_in": "Sign in",
+        "nav_chat": "Chat",
+        "nav_settings": "Settings",
+        "nav_upgrade": "Upgrade to Pro / Ultra",
+        "logout": "Log out",
+        "settings_title": "Settings",
+        "dark_mode": "Dark mode (Luxurious Tech)",
+        "language": "Language",
+        "creativity": "AI creativity level",
+        "pricing_title": "Choose your Agnes plan",
+        "buy": "Buy now",
+        "chat_ph_ultra": "Message Agnes…",
+        "chat_ph_fast": "Message Agnes (Fast)…",
+        "welcome_ar": "مرحباً ، أنا أغنيس.. كيف يمكنني مساعدتك اليوم؟",
+        "welcome_en": "Hello, I'm Agnes. How can I help you today?",
+        "reply_ultra": "Agnes-Ultra — connect your model here for full reasoning.",
+        "reply_fast": "Agnes-Fast — wire your streaming endpoint for snappy replies.",
+        "mascot_hint": "The mascot covers its eyes while you type your password.",
+        "tagline": "Your Sophisticated Intelligent Assistant",
+    },
+    "ar": {
+        "login_title": "مرحباً بعودتك!",
+        "login_sub": "سجّل الدخول للمتابعة إلى أغنيس",
+        "username": "البريد أو اسم المستخدم",
+        "password": "كلمة المرور",
+        "sign_in": "تسجيل الدخول",
+        "nav_chat": "محادثة",
+        "nav_settings": "الإعدادات",
+        "nav_upgrade": "الترقية إلى Pro / Ultra",
+        "logout": "تسجيل الخروج",
+        "settings_title": "الإعدادات",
+        "dark_mode": "الوضع الداكن (فاخر تقني)",
+        "language": "اللغة",
+        "creativity": "مستوى إبداع الذكاء الاصطناعي",
+        "pricing_title": "اختر باقة أغنيس",
+        "buy": "اشترِ الآن",
+        "chat_ph_ultra": "رسالة إلى أغنيس…",
+        "chat_ph_fast": "رسالة إلى أغنيس (سريع)…",
+        "welcome_ar": "مرحباً ، أنا أغنيس.. كيف يمكنني مساعدتك اليوم؟",
+        "welcome_en": "Hello, I'm Agnes. How can I help you today?",
+        "reply_ultra": "Agnes-Ultra — اربط نموذجك هنا للاستدلال الكامل.",
+        "reply_fast": "Agnes-Fast — اربط بث الاستجابة السريع للإنتاج.",
+        "mascot_hint": "التميمة تغطي عينيها أثناء كتابة كلمة المرور.",
+        "tagline": "مساعدتك الذكية الأنيقة",
+    },
+}
 
-# —— Custom CSS (10% scale + full theme) ——
-st.markdown(
-    """
+
+def tr(key: str) -> str:
+    lang = st.session_state.get("language", "en")
+    return STRINGS.get(lang, STRINGS["en"]).get(key, key)
+
+
+def inject_global_css() -> None:
+    dark = st.session_state.get("dark_mode", True)
+    authed = st.session_state.get("authenticated", False)
+    rtl = st.session_state.get("language") == "ar"
+
+    if dark:
+        bg = "#000000"
+        card = "#1A1412"
+        text = "#F4F2EF"
+        muted = "#9A8F88"
+        accent = "#00E5FF"
+        accent_soft = "rgba(0, 229, 255, 0.35)"
+        input_bg = "#0D0D0D"
+    else:
+        bg = "#F5F1EC"
+        card = "#FFFFFF"
+        text = "#1A1412"
+        muted = "#5C534D"
+        accent = "#00A8C6"
+        accent_soft = "rgba(0, 168, 198, 0.35)"
+        input_bg = "#FAFAFA"
+
+    hide_sb = (
+        '[data-testid="stSidebar"] { display: none !important; }'
+        if not authed
+        else ""
+    )
+
+    st.markdown(
+        f"""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  /* 10% UI scale reduction */
-  html {
-    zoom: 0.9;
-  }
-  @supports not (zoom: 1) {
-    .main .block-container {
-      transform: scale(0.9);
+  :root {{
+    --lux-bg: {bg};
+    --lux-card: {card};
+    --lux-text: {text};
+    --lux-muted: {muted};
+    --lux-accent: {accent};
+    --lux-accent-soft: {accent_soft};
+    --lux-input-bg: {input_bg};
+  }}
+
+  html {{ zoom: 0.92; }}
+  @supports not (zoom: 1) {{
+    .main .block-container {{
+      transform: scale(0.92);
       transform-origin: top center;
-      width: 111.11%;
-      max-width: 111.11%;
-    }
-  }
+      width: 108.7%;
+      max-width: 108.7%;
+    }}
+  }}
 
-  :root {
-    --agnes-black: #0c0c0c;
-    --agnes-black-soft: #141211;
-    --agnes-white: #ffffff;
-    --agnes-sand: #d4c4b0;
-    --agnes-sand-muted: #b8a995;
-    --agnes-mocha: #6b4423;
-    --agnes-cedar: #5c3d2e;
-    --agnes-accent: #a0522d;
-    --agnes-accent-deep: #8b4513;
-    --agnes-bubble-agnes: #3d2b1f;
-    --agnes-glass: rgba(139, 69, 19, 0.12);
-    --agnes-glass-border: rgba(160, 82, 45, 0.45);
-  }
+  .stApp, [data-testid="stAppViewContainer"], .main {{
+    background: var(--lux-bg) !important;
+    color: var(--lux-text) !important;
+  }}
 
-  .stApp {
-    background: var(--agnes-black) !important;
-    color: var(--agnes-white);
-  }
+  .main .block-container {{
+    padding-top: 0.75rem;
+    padding-bottom: 4rem;
+    max-width: 72rem;
+    direction: {"rtl" if rtl else "ltr"};
+  }}
 
-  [data-testid="stAppViewContainer"],
-  .main {
-    background: var(--agnes-black) !important;
-  }
+  .font-ar, [lang="ar"], .rtl-block {{
+    font-family: "Cairo", system-ui, sans-serif !important;
+  }}
+  body, .stApp {{
+    font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  }}
 
-  .main .block-container {
-    padding-top: 0.5rem;
-    padding-bottom: 5.5rem;
-    max-width: 28rem;
-  }
+  {hide_sb}
 
-  /* Hide Streamlit chrome */
-  #MainMenu { visibility: hidden; }
-  footer { visibility: hidden; }
-  header[data-testid="stHeader"] { background: transparent; }
+  [data-testid="stSidebar"] {{
+    background: linear-gradient(180deg, #0A0A0A 0%, #12100E 100%) !important;
+    border-right: 1px solid rgba(0, 229, 255, 0.12) !important;
+  }}
+  [data-testid="stSidebar"] .block-container {{ padding-top: 1.25rem; }}
+  [data-testid="stSidebar"] * {{ color: #EAE6E1 !important; }}
 
-  /* Header */
-  .agnes-header-wrap {
-    padding: 0.75rem 0 1rem;
-    border-bottom: 1px solid rgba(160, 82, 45, 0.25);
-    margin-bottom: 0.75rem;
-  }
-  .agnes-title {
-    font-family: "Segoe UI", system-ui, sans-serif;
-    font-size: 1.65rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--agnes-white);
-    margin: 0;
-    line-height: 1.2;
-  }
-  .agnes-subtitle {
-    font-family: "Segoe UI", system-ui, sans-serif;
-    font-size: 0.82rem;
-    font-weight: 400;
-    color: var(--agnes-sand);
-    margin: 0.35rem 0 0;
-    letter-spacing: 0.02em;
-  }
+  .stTextInput input,
+  .stTextArea textarea,
+  [data-baseweb="input"] {{
+    background: var(--lux-input-bg) !important;
+    color: var(--lux-text) !important;
+    border-color: rgba(0, 229, 255, 0.45) !important;
+    border-radius: 10px !important;
+  }}
+  .stTextInput input:focus,
+  .stTextArea textarea:focus,
+  [data-baseweb="input"]:focus {{
+    border-color: var(--lux-accent) !important;
+    box-shadow: 0 0 0 1px var(--lux-accent) !important;
+    outline: none !important;
+  }}
+  [data-testid="stChatInput"] {{
+    background: var(--lux-input-bg) !important;
+    border: 1px solid rgba(0, 229, 255, 0.45) !important;
+    border-radius: 12px !important;
+  }}
+  [data-testid="stChatInput"] textarea {{
+    color: var(--lux-text) !important;
+    caret-color: var(--lux-accent);
+  }}
 
-  /* Tabs: Agnes-Ultra / Agnes-Fast — active underline in brown */
-  .stTabs [data-baseweb="tab-list"] {
+  iframe[title="streamlit_keyup.st_keyup"] {{
+    border: 1px solid rgba(0, 229, 255, 0.35) !important;
+    border-radius: 10px !important;
+  }}
+
+  .stTabs [data-baseweb="tab-list"] {{
     gap: 0;
     background: transparent;
-    border-bottom: 1px solid rgba(160, 82, 45, 0.2);
-  }
-  .stTabs [data-baseweb="tab"] {
-    color: var(--agnes-sand-muted) !important;
+    border-bottom: 1px solid rgba(0, 229, 255, 0.2);
+  }}
+  .stTabs [data-baseweb="tab"] {{
+    color: var(--lux-muted) !important;
     font-weight: 600;
-    font-size: 0.85rem;
-    letter-spacing: 0.03em;
-    padding: 0.5rem 1rem !important;
-    background: transparent !important;
-  }
-  .stTabs [aria-selected="true"] {
-    color: var(--agnes-white) !important;
-    border-bottom: 2px solid var(--agnes-accent) !important;
-    border-radius: 0 !important;
-  }
-  .stTabs [data-baseweb="tab-highlight"] {
-    display: none;
-  }
-
-  /* Fallback: horizontal radio when st.tabs has no on_change / .open */
-  .agnes-model-tabs-fallback .stRadio > div {
-    flex-direction: row !important;
-    gap: 0 !important;
-    background: transparent !important;
-    border-bottom: 1px solid rgba(160, 82, 45, 0.2);
-    padding-bottom: 0 !important;
-  }
-  .agnes-model-tabs-fallback .stRadio > div > label {
-    margin: 0 !important;
-    padding: 0.5rem 1rem !important;
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    border-radius: 0 !important;
-    color: var(--agnes-sand-muted) !important;
-    font-weight: 600 !important;
-    font-size: 0.85rem !important;
-    letter-spacing: 0.03em !important;
-  }
-  .agnes-model-tabs-fallback .stRadio > div > label:has(input:checked) {
-    color: var(--agnes-white) !important;
-    border-bottom-color: var(--agnes-accent) !important;
-  }
-
-  /* Skills horizontal scroll */
-  .skills-scroll {
-    display: flex;
-    gap: 0.75rem;
-    overflow-x: auto;
-    padding: 0.5rem 0 1rem;
-    margin: 0 -0.25rem;
-    scrollbar-color: var(--agnes-accent) var(--agnes-black-soft);
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-  .skills-scroll::-webkit-scrollbar {
-    height: 4px;
-  }
-  .skills-scroll::-webkit-scrollbar-thumb {
-    background: var(--agnes-accent);
-    border-radius: 2px;
-  }
-  .skill-card {
-    flex: 0 0 auto;
-    width: 148px;
-    padding: 0.85rem 1rem;
-    background: var(--agnes-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--agnes-glass-border);
-    border-radius: 10px;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.2);
-  }
-  .skill-card-title {
     font-size: 0.88rem;
-    font-weight: 700;
-    color: var(--agnes-white);
-    margin: 0 0 0.35rem;
-    line-height: 1.25;
-  }
-  .skill-card-sub {
-    font-size: 0.72rem;
-    color: var(--agnes-sand-muted);
-    margin: 0;
-    line-height: 1.35;
-  }
+    padding: 0.5rem 1rem !important;
+    background: transparent !important;
+  }}
+  .stTabs [aria-selected="true"] {{
+    color: var(--lux-accent) !important;
+    border-bottom: 2px solid var(--lux-accent) !important;
+    border-radius: 0 !important;
+  }}
+  .stTabs [data-baseweb="tab-highlight"] {{ display: none; }}
 
-  /* Chat area */
-  .agnes-chat-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    margin: 1rem 0;
-    min-height: 200px;
-  }
-  .bubble-row {
-    display: flex;
-    width: 100%;
-  }
-  .bubble-row.user { justify-content: flex-end; }
-  .bubble-row.assistant { justify-content: flex-start; }
-  .bubble-agnes {
-    max-width: 92%;
-    padding: 0.75rem 1rem;
-    background: var(--agnes-bubble-agnes);
-    color: var(--agnes-white);
-    border-radius: 14px 14px 14px 4px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-  }
-  .bubble-user {
-    max-width: 88%;
-    padding: 0.75rem 1rem;
-    background: var(--agnes-black-soft);
-    color: var(--agnes-white);
-    border: 1px solid rgba(255, 255, 255, 0.55);
-    border-radius: 14px 14px 4px 14px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-
-  /* Chat input */
-  [data-testid="stChatInput"] {
-    background: var(--agnes-black-soft) !important;
-    border: 1px solid rgba(160, 82, 45, 0.35) !important;
-    border-radius: 12px !important;
-  }
-  [data-testid="stChatInput"] textarea {
-    color: var(--agnes-white) !important;
-    caret-color: var(--agnes-accent);
-  }
-  [data-testid="stChatInput"] textarea::placeholder {
-    color: var(--agnes-sand-muted) !important;
-    opacity: 0.9;
-  }
-
-  /* Bottom bar */
-  .agnes-bottom-bar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 999990;
-    background: var(--agnes-black);
-    border-top: 1px solid rgba(160, 82, 45, 0.28);
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    padding: 0.55rem 0 calc(0.55rem + env(safe-area-inset-bottom, 0px));
-    max-width: 28rem;
-    margin: 0 auto;
-  }
-  .agnes-nav-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.2rem;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem 0.75rem;
-    color: var(--agnes-sand);
-    font-size: 0.62rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-  .agnes-nav-btn svg {
-    width: 22px;
-    height: 22px;
-    stroke: var(--agnes-accent);
-    fill: none;
-    stroke-width: 1.6;
-  }
-  .agnes-nav-btn--active { color: var(--agnes-white); }
-  .agnes-nav-btn--active svg { stroke: var(--agnes-white); }
-
-  /* Primary buttons */
-  .stButton > button {
-    background: var(--agnes-accent) !important;
-    color: var(--agnes-white) !important;
-    border: 1px solid var(--agnes-accent-deep) !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-  }
-  .stButton > button:hover {
-    border-color: var(--agnes-accent) !important;
-    box-shadow: 0 0 0 1px rgba(160, 82, 45, 0.4);
-  }
-
-  hr {
-    border: none;
-    border-top: 1px solid rgba(160, 82, 45, 0.15);
-    margin: 0.75rem 0;
-  }
+  #MainMenu {{ visibility: hidden; }}
+  footer {{ visibility: hidden; }}
 </style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-def render_header() -> None:
-    st.markdown(
-        """
-<div class="agnes-header-wrap">
-  <h1 class="agnes-title">Agnes</h1>
-  <p class="agnes-subtitle">Your Sophisticated Intelligent Assistant</p>
-</div>
-    """,
+        """,
         unsafe_allow_html=True,
     )
+
+
+def init_session() -> None:
+    defaults: dict[str, Any] = {
+        "authenticated": False,
+        "nav_slug": "chat",
+        "dark_mode": True,
+        "language": "en",
+        "creativity": 0.65,
+        "active_model": "Agnes-Ultra",
+        "messages": None,
+        "payment_toast": None,
+        "checkout_plan": None,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+    if not st.session_state.get("_nav_v2"):
+        st.session_state.pop("nav_page", None)
+        st.session_state.pop("nav_page_radio", None)
+        st.session_state._nav_v2 = True
+
+    if st.session_state.messages is None:
+        lang0 = st.session_state.language
+        if lang0 == "ar":
+            wtext = STRINGS["ar"]["welcome_ar"]
+            rtl = True
+        else:
+            wtext = STRINGS["en"]["welcome_en"]
+            rtl = False
+        st.session_state.messages = [
+            {"role": "assistant", "text": wtext, "force_rtl": rtl}
+        ]
+
+
+def mascot_html(pw_len: int) -> str:
+    typing = pw_len > 0
+    eye_opacity = "0" if typing else "1"
+    hand_y = "-6" if typing else "18"
+    blush = "0.55" if typing else "0.25"
+    return f"""
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; background: transparent; font-family: system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; min-height: 360px;
+  }}
+  .stage {{ position: relative; width: 280px; height: 320px; }}
+  .glow {{
+    position: absolute; inset: 12% 8%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,229,255,0.18) 0%, transparent 70%);
+    filter: blur(8px);
+  }}
+  svg {{ overflow: visible; }}
+  .eyes {{ transition: opacity 0.18s ease; opacity: {eye_opacity}; }}
+  .hands {{ transition: transform 0.22s ease; transform: translateY({hand_y}px); }}
+  .blush ellipse {{ opacity: {blush}; transition: opacity 0.2s ease; }}
+</style></head>
+<body>
+  <div class="stage" aria-hidden="true">
+    <div class="glow"></div>
+    <svg width="280" height="320" viewBox="0 0 280 320">
+      <defs>
+        <linearGradient id="fur" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#2A2420"/><stop offset="100%" stop-color="#1A1412"/>
+        </linearGradient>
+        <linearGradient id="ear" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3A302C"/><stop offset="100%" stop-color="#1A1412"/>
+        </linearGradient>
+      </defs>
+      <ellipse cx="78" cy="118" rx="28" ry="36" fill="url(#ear)" transform="rotate(-18 78 118)"/>
+      <ellipse cx="202" cy="118" rx="28" ry="36" fill="url(#ear)" transform="rotate(18 202 118)"/>
+      <ellipse cx="140" cy="170" rx="92" ry="84" fill="url(#fur)"
+        stroke="rgba(0,229,255,0.35)" stroke-width="1.5"/>
+      <g class="blush">
+        <ellipse cx="92" cy="182" rx="18" ry="10" fill="rgba(0,229,255,0.12)"/>
+        <ellipse cx="188" cy="182" rx="18" ry="10" fill="rgba(0,229,255,0.12)"/>
+      </g>
+      <g class="eyes">
+        <ellipse cx="108" cy="158" rx="14" ry="18" fill="#0A0A0A"/>
+        <ellipse cx="172" cy="158" rx="14" ry="18" fill="#0A0A0A"/>
+        <circle cx="112" cy="152" r="4" fill="#FFFFFF" opacity="0.85"/>
+        <circle cx="176" cy="152" r="4" fill="#FFFFFF" opacity="0.85"/>
+      </g>
+      <ellipse cx="140" cy="198" rx="34" ry="26" fill="#241C19" opacity="0.9"/>
+      <ellipse cx="128" cy="196" rx="8" ry="6" fill="#0A0A0A"/>
+      <ellipse cx="152" cy="196" rx="8" ry="6" fill="#0A0A0A"/>
+      <g class="hands" fill="#2C2622" stroke="rgba(0,229,255,0.25)" stroke-width="1">
+        <ellipse cx="95" cy="168" rx="36" ry="28" transform="rotate(-12 95 168)"/>
+        <ellipse cx="185" cy="168" rx="36" ry="28" transform="rotate(12 185 168)"/>
+      </g>
+    </svg>
+    <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;
+      font-size:11px;color:rgba(0,229,255,0.55);letter-spacing:0.08em;text-transform:uppercase;">
+      Agnes
+    </div>
+  </div>
+</body></html>
+"""
+
+
+def render_login() -> None:
+    st.markdown(
+        """
+<style>
+  .welcome-head h2 {
+    margin: 0 0 0.35rem 0; font-size: 1.55rem; font-weight: 700; color: #FFFFFF;
+    letter-spacing: 0.02em;
+  }
+  .welcome-head p.sub {
+    margin: 0 0 1rem 0; color: #B8A99A; font-size: 0.92rem;
+  }
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    pw_key = "login_password_live"
+    pw_len = len(str(st.session_state.get(pw_key, "")))
+
+    c_mascot, c_card = st.columns([1.05, 1.0], gap="large")
+    with c_mascot:
+        components.html(mascot_html(pw_len), height=400, scrolling=False)
+
+    with c_card:
+        dir_attr = 'dir="rtl"' if st.session_state.get("language") == "ar" else ""
+        st.markdown(
+            f'<div class="welcome-head" {dir_attr}><h2 class="font-ar">{html.escape(tr("login_title"))}</h2>'
+            f'<p class="sub font-ar">{html.escape(tr("login_sub"))}</p></div>',
+            unsafe_allow_html=True,
+        )
+
+        with st.container(border=True):
+            if st_keyup is not None:
+                st_keyup(tr("password"), key=pw_key, debounce=0)
+                st.caption(tr("mascot_hint"))
+            with st.form("login_form_agnes", clear_on_submit=False):
+                username = st.text_input(tr("username"), key="login_username")
+                password_fallback = ""
+                if st_keyup is None:
+                    password_fallback = st.text_input(
+                        tr("password"), type="password", key=pw_key
+                    )
+                    st.caption(
+                        "Install `streamlit-keyup` for live mascot animation while typing."
+                    )
+                submitted = st.form_submit_button(
+                    tr("sign_in"), type="primary", use_container_width=True
+                )
+                if submitted:
+                    password_value = (
+                        str(st.session_state.get(pw_key, ""))
+                        if st_keyup is not None
+                        else password_fallback
+                    )
+                    if (
+                        username.strip() == _DEMO_USER
+                        and password_value == _DEMO_PASS
+                    ):
+                        st.session_state.authenticated = True
+                        st.session_state.nav_slug = "chat"
+                        st.rerun()
+                    else:
+                        st.error(
+                            "Invalid credentials. Demo: username `demo`, password `demo`."
+                        )
+
+
+def _nav_label(slug: str) -> str:
+    return {
+        "chat": "💬 " + tr("nav_chat"),
+        "settings": "⚙️ " + tr("nav_settings"),
+        "upgrade": "💎 " + tr("nav_upgrade"),
+    }[slug]
+
+
+def render_sidebar() -> None:
+    st.sidebar.markdown("### ✦ **Agnes AI**")
+    st.sidebar.markdown(
+        '<p style="color:#9A8F88;font-size:0.82rem;margin-top:-0.5rem;">Platform</p>',
+        unsafe_allow_html=True,
+    )
+    slugs = ("chat", "settings", "upgrade")
+    if st.session_state.nav_slug not in slugs:
+        st.session_state.nav_slug = "chat"
+    st.sidebar.radio(
+        "Navigation",
+        list(slugs),
+        format_func=_nav_label,
+        key="nav_slug",
+        label_visibility="collapsed",
+    )
+    st.sidebar.divider()
+    if st.sidebar.button(tr("logout"), use_container_width=True):
+        st.session_state.authenticated = False
+        for k in (
+            "login_username",
+            "login_password_live",
+            "nav_slug",
+            "agnes_model_tabs",
+            "agnes_model_radio",
+            "checkout_plan",
+            "payment_toast",
+        ):
+            st.session_state.pop(k, None)
+        st.session_state.nav_slug = "chat"
+        st.rerun()
 
 
 def render_skills_carousel() -> None:
@@ -336,100 +442,291 @@ def render_skills_carousel() -> None:
     for title, sub in skills:
         cards += f"""
         <div class="skill-card">
-          <p class="skill-card-title">{title}</p>
-          <p class="skill-card-sub">{sub}</p>
+          <p class="skill-card-title">{html.escape(title)}</p>
+          <p class="skill-card-sub">{html.escape(sub)}</p>
         </div>"""
     st.markdown(
-        f'<div class="skills-scroll">{cards}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def render_chat() -> None:
-    parts = ['<div class="agnes-chat-stack">']
-    for m in st.session_state.messages:
-        safe = html.escape(m["text"])
-        if m["role"] == "assistant":
-            parts.append(
-                f'<div class="bubble-row assistant"><div class="bubble-agnes">{safe}</div></div>'
-            )
-        else:
-            parts.append(
-                f'<div class="bubble-row user"><div class="bubble-user">{safe}</div></div>'
-            )
-    parts.append("</div>")
-    st.markdown("".join(parts), unsafe_allow_html=True)
-
-
-def render_bottom_bar() -> None:
-    st.markdown(
-        """
-<div class="agnes-bottom-bar">
-  <button type="button" class="agnes-nav-btn agnes-nav-btn--active" title="Chat">
-    <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-    Chat
-  </button>
-  <button type="button" class="agnes-nav-btn" title="Skills">
-    <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-    Skills
-  </button>
-  <button type="button" class="agnes-nav-btn" title="Settings">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .55.22 1.09.62 1.49.4.4.94.62 1.49.62H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-    Settings
-  </button>
-</div>
+        f"""
+<style>
+  .skills-scroll {{
+    display: flex; gap: 0.75rem; overflow-x: auto; padding: 0.5rem 0 1rem;
+    scrollbar-color: #00E5FF #0A0A0A; scrollbar-width: thin;
+  }}
+  .skill-card {{
+    flex: 0 0 auto; width: 158px; padding: 0.9rem 1rem; background: #1A1412;
+    border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 12px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.25);
+  }}
+  .skill-card-title {{
+    font-size: 0.9rem; font-weight: 700; color: #FFFFFF; margin: 0 0 0.35rem;
+  }}
+  .skill-card-sub {{ font-size: 0.72rem; color: #B8A99A; margin: 0; line-height: 1.35; }}
+</style>
+<div class="skills-scroll">{cards}</div>
         """,
         unsafe_allow_html=True,
     )
 
 
-# —— Layout ——
-render_header()
-
-# Native tabs with lazy execution when supported; else tab-styled radio.
-if _TABS_STATEFUL:
-    tab_ultra, tab_fast = st.tabs(
-        ["Agnes-Ultra", "Agnes-Fast"],
-        on_change="rerun",
-        key="agnes_model_tabs",
+def render_chat_bubbles() -> None:
+    lang = st.session_state.get("language", "en")
+    parts = ['<div class="agnes-chat-stack">']
+    for m in st.session_state.messages:
+        safe = html.escape(m["text"])
+        force_rtl = m.get("force_rtl") or (lang == "ar" and m["role"] == "assistant")
+        dattr = ' dir="rtl" lang="ar" class="rtl-block font-ar"' if force_rtl else ""
+        if m["role"] == "assistant":
+            parts.append(
+                f'<div class="bubble-row assistant"><div class="bubble-agnes"{dattr}>{safe}</div></div>'
+            )
+        else:
+            u_rtl = lang == "ar"
+            ud = ' dir="rtl" lang="ar" class="rtl-block font-ar"' if u_rtl else ""
+            parts.append(
+                f'<div class="bubble-row user"><div class="bubble-user"{ud}>{safe}</div></div>'
+            )
+    parts.append("</div>")
+    st.markdown(
+        """
+<style>
+  .agnes-chat-stack {
+    display: flex; flex-direction: column; gap: 0.75rem; margin: 1rem 0; min-height: 200px;
+  }
+  .bubble-row { display: flex; width: 100%; }
+  .bubble-row.user { justify-content: flex-end; }
+  .bubble-row.assistant { justify-content: flex-start; }
+  .bubble-agnes {
+    max-width: 92%; padding: 0.75rem 1rem; background: #1A1412; color: #FFFFFF;
+    border: 1px solid rgba(0, 229, 255, 0.22); border-radius: 14px 14px 14px 4px;
+    font-size: 0.95rem; line-height: 1.65; text-align: start;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  .bubble-user {
+    max-width: 88%; padding: 0.75rem 1rem; background: #0A0A0A; color: #F4F2EF;
+    border: 1px solid rgba(0, 229, 255, 0.45); border-radius: 14px 14px 4px 14px;
+    font-size: 0.95rem; line-height: 1.5;
+  }
+  .bubble-agnes[dir="rtl"], .bubble-user[dir="rtl"] {
+    text-align: right; unicode-bidi: plaintext;
+  }
+</style>
+        """
+        + "".join(parts),
+        unsafe_allow_html=True,
     )
-    if tab_ultra.open:
-        with tab_ultra:
-            st.session_state.active_model = "Agnes-Ultra"
-    if tab_fast.open:
-        with tab_fast:
-            st.session_state.active_model = "Agnes-Fast"
-else:
-    st.markdown('<div class="agnes-model-tabs-fallback">', unsafe_allow_html=True)
-    _idx = 0 if st.session_state.get("active_model", "Agnes-Ultra") == "Agnes-Ultra" else 1
-    _choice = st.radio(
-        "Model",
-        ["Agnes-Ultra", "Agnes-Fast"],
-        horizontal=True,
-        label_visibility="collapsed",
-        index=_idx,
-        key="agnes_model_radio",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.session_state.active_model = _choice
 
-render_skills_carousel()
-render_chat()
 
-placeholder = (
-    "Message Agnes…"
-    if st.session_state.get("active_model", "Agnes-Ultra") == "Agnes-Ultra"
-    else "Message Agnes (Fast)…"
-)
-prompt = st.chat_input(placeholder)
-if prompt:
-    st.session_state.messages.append({"role": "user", "text": prompt})
-    if st.session_state.active_model == "Agnes-Ultra":
-        reply = "Agnes-Ultra — UI demo. Connect your model here for full reasoning."
+def sync_welcome_message_language() -> None:
+    msgs = st.session_state.messages
+    if not msgs:
+        return
+    first = msgs[0]
+    if first.get("role") != "assistant":
+        return
+    if st.session_state.language == "ar":
+        first["text"] = STRINGS["ar"]["welcome_ar"]
+        first["force_rtl"] = True
     else:
-        reply = "Agnes-Fast — UI demo. Wire your streaming endpoint for snappy replies."
-    st.session_state.messages.append({"role": "assistant", "text": reply})
-    st.rerun()
+        first["text"] = STRINGS["en"]["welcome_en"]
+        first["force_rtl"] = False
 
-render_bottom_bar()
+
+def render_chat_page() -> None:
+    sync_welcome_message_language()
+    st.markdown(
+        '<p style="font-size:1.35rem;font-weight:700;color:#FFFFFF;letter-spacing:0.03em;">Agnes</p>',
+        unsafe_allow_html=True,
+    )
+    st.caption(tr("tagline"))
+
+    creativity = float(st.session_state.get("creativity", 0.65))
+    st.caption(f"Creativity index: {creativity:.2f} (map to model temperature)")
+
+    if _TABS_STATEFUL:
+        tab_ultra, tab_fast = st.tabs(
+            ["Agnes-Ultra", "Agnes-Fast"],
+            on_change="rerun",
+            key="agnes_model_tabs",
+        )
+        if tab_ultra.open:
+            with tab_ultra:
+                st.session_state.active_model = "Agnes-Ultra"
+        if tab_fast.open:
+            with tab_fast:
+                st.session_state.active_model = "Agnes-Fast"
+    else:
+        _idx = 0 if st.session_state.get("active_model", "Agnes-Ultra") == "Agnes-Ultra" else 1
+        st.session_state.active_model = st.radio(
+            "Model",
+            ["Agnes-Ultra", "Agnes-Fast"],
+            horizontal=True,
+            label_visibility="collapsed",
+            index=_idx,
+            key="agnes_model_radio",
+        )
+
+    render_skills_carousel()
+    render_chat_bubbles()
+
+    ph = (
+        tr("chat_ph_ultra")
+        if st.session_state.get("active_model") == "Agnes-Ultra"
+        else tr("chat_ph_fast")
+    )
+    prompt = st.chat_input(ph)
+    if prompt:
+        st.session_state.messages.append({"role": "user", "text": prompt})
+        reply = (
+            tr("reply_ultra")
+            if st.session_state.active_model == "Agnes-Ultra"
+            else tr("reply_fast")
+        )
+        st.session_state.messages.append(
+            {"role": "assistant", "text": reply + f" (creativity {creativity:.2f})"}
+        )
+        st.rerun()
+
+
+def render_settings_page() -> None:
+    st.header(tr("settings_title"))
+    st.session_state.dark_mode = st.toggle(
+        tr("dark_mode"), value=st.session_state.dark_mode
+    )
+    lang = st.selectbox(
+        tr("language"),
+        options=["en", "ar"],
+        format_func=lambda x: "English" if x == "en" else "العربية",
+        index=0 if st.session_state.language == "en" else 1,
+    )
+    st.session_state.language = lang
+    st.session_state.creativity = st.slider(
+        tr("creativity"),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(st.session_state.creativity),
+        step=0.05,
+    )
+    st.info("Theme updates immediately. Sidebar labels follow your language.")
+
+
+def _payment_dialog_body(plan_key: str) -> None:
+    st.markdown(
+        f"**{html.escape(plan_key)}** — secure demo checkout.",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p style="color:#9A8F88;font-size:0.9rem;">No real charges. Confirm to simulate success.</p>',
+        unsafe_allow_html=True,
+    )
+    c_ok, c_cancel = st.columns(2)
+    with c_ok:
+        if st.button("Confirm payment", type="primary", use_container_width=True):
+            st.session_state.payment_toast = plan_key
+            st.session_state.checkout_plan = None
+            time.sleep(0.35)
+            st.rerun()
+    with c_cancel:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.checkout_plan = None
+            st.rerun()
+
+
+if hasattr(st, "dialog"):
+    payment_dialog = st.dialog("💳 Checkout")(_payment_dialog_body)
+else:  # pragma: no cover
+
+    def payment_dialog(plan_key: str) -> None:
+        st.session_state.checkout_plan = plan_key
+
+
+def render_upgrade_page() -> None:
+    st.markdown(
+        f'<h2 class="font-ar" style="color:#FFFFFF;margin-bottom:0.25rem;">{html.escape(tr("pricing_title"))}</h2>',
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("checkout_plan") and not hasattr(st, "dialog"):
+        st.markdown("#### 💳 Checkout")
+        _payment_dialog_body(st.session_state.checkout_plan)
+
+    if st.session_state.get("payment_toast"):
+        st.success(
+            f"Payment successful — {st.session_state.payment_toast}. Welcome to Agnes."
+        )
+        if st.button("Dismiss"):
+            st.session_state.payment_toast = None
+            st.rerun()
+
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        st.markdown(
+            """
+<div style="background:#1A1412;border:1px solid rgba(0,229,255,0.18);border-radius:16px;padding:1.5rem;min-height:320px;">
+  <h3 style="color:#FFFFFF;margin-top:0;">Agnes Pro</h3>
+  <p style="color:#B8A99A;font-size:0.95rem;">For power users who want speed and depth.</p>
+  <ul style="color:#EAE6E1;line-height:1.7;">
+    <li>Faster response</li>
+    <li>Advanced memory</li>
+    <li>Priority queue</li>
+    <li>Expanded context</li>
+  </ul>
+  <p style="color:#00E5FF;font-size:1.35rem;font-weight:700;">$12<span style="font-size:0.85rem;color:#9A8F88">/mo</span></p>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(tr("buy") + " — Pro", key="buy_pro", use_container_width=True):
+            payment_dialog("Agnes Pro")
+
+    with c2:
+        st.markdown(
+            """
+<div style="background:linear-gradient(145deg,#0A1A1C 0%,#1A1412 55%,#0E2226 100%);
+  border:1px solid rgba(0,229,255,0.55);border-radius:16px;padding:1.5rem;min-height:320px;
+  box-shadow:0 0 40px rgba(0,229,255,0.12), inset 0 1px 0 rgba(0,229,255,0.2);position:relative;overflow:hidden;">
+  <div style="position:absolute;top:12px;right:14px;font-size:0.68rem;letter-spacing:0.12em;text-transform:uppercase;
+    color:#001018;background:#00E5FF;padding:0.25rem 0.55rem;border-radius:999px;font-weight:700;">Ultra</div>
+  <h3 style="color:#00E5FF;margin-top:0;">Agnes Ultra</h3>
+  <p style="color:#B8A99A;font-size:0.95rem;">Electric performance for teams and creators.</p>
+  <ul style="color:#EAE6E1;line-height:1.7;">
+    <li><span style="color:#00E5FF">Fastest</span> inference tier</li>
+    <li>Long-horizon memory & tools</li>
+    <li>Dedicated quality lane</li>
+    <li>Concierge onboarding</li>
+  </ul>
+  <p style="color:#00E5FF;font-size:1.35rem;font-weight:700;">$29<span style="font-size:0.85rem;color:#9A8F88">/mo</span></p>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(tr("buy") + " — Ultra", key="buy_ultra", use_container_width=True):
+            payment_dialog("Agnes Ultra")
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="Agnes AI — Platform",
+        page_icon="✦",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    init_session()
+    inject_global_css()
+
+    if not st.session_state.authenticated:
+        render_login()
+        return
+
+    render_sidebar()
+    slug = st.session_state.get("nav_slug", "chat")
+    if slug == "settings":
+        render_settings_page()
+    elif slug == "upgrade":
+        render_upgrade_page()
+    else:
+        render_chat_page()
+
+
+if __name__ == "__main__":
+    main()
+
 
